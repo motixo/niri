@@ -2968,6 +2968,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         // This matches self.tiles_with_render_positions().
         let scale = self.scale;
         let view_off = Point::from((-self.view_pos(), 0.));
+        let mut resize_hit = None;
         for (col, col_x) in self.columns_in_render_order() {
             let col_off = Point::from((col_x, 0.));
             let col_render_off = col.render_offset();
@@ -3001,12 +3002,16 @@ impl<W: LayoutElement> ScrollingSpace<W> {
                 let tile_pos = tile_pos.to_physical_precise_round(scale).to_logical(scale);
 
                 if let Some(rv) = HitType::hit_tile(tile, tile_pos, pos) {
-                    return Some(rv);
+                    if matches!(rv.1, HitType::SsdResize { .. }) {
+                        resize_hit.get_or_insert(rv);
+                    } else {
+                        return Some(rv);
+                    }
                 }
             }
         }
 
-        None
+        resize_hit
     }
 
     pub fn view_offset_gesture_begin(&mut self, is_touchpad: bool) {

@@ -317,6 +317,9 @@ impl<W: LayoutElement> Tile<W> {
                     tile_size.w += width * 2.;
                     tile_size.h += width * 2.;
                 }
+                if !prev_sizing_mode.is_fullscreen() {
+                    tile_size.h += self.normal_titlebar_height();
+                }
 
                 tile_size.w = tile_size_from.w + (tile_size.w - tile_size_from.w) * val;
                 tile_size.h = tile_size_from.h + (tile_size.h - tile_size_from.h) * val;
@@ -355,6 +358,9 @@ impl<W: LayoutElement> Tile<W> {
                     let width = self.border.width();
                     tile_size.w += width * 2.;
                     tile_size.h += width * 2.;
+                }
+                if !prev_sizing_mode.is_fullscreen() {
+                    tile_size.h += self.normal_titlebar_height();
                 }
 
                 let fullscreen_from = if prev_sizing_mode.is_fullscreen() {
@@ -916,7 +922,7 @@ impl<W: LayoutElement> Tile<W> {
         // - During animations, the window remains centered within the tile; this is important for
         //   the to/from fullscreen animation.
         loc.x += (target_size.w - window_size.w) / 2.;
-        let titlebar_height = self.titlebar_height();
+        let titlebar_height = self.normal_titlebar_height() * (1. - self.fullscreen_progress());
         loc.y += (target_size.h - window_size.h - titlebar_height) / 2. + titlebar_height;
 
         // Round to physical pixels.
@@ -1056,8 +1062,11 @@ impl<W: LayoutElement> Tile<W> {
 
         if self.has_titlebar() {
             let size = self.animated_tile_size();
-            if Rectangle::from_size(size).contains(point) {
-                let handle = 6.;
+            let handle = 6.;
+            if (-handle..size.w + handle).contains(&point.x)
+                && (-handle..size.h + handle).contains(&point.y)
+                && !self.is_in_input_region(point)
+            {
                 let mut edges = ResizeEdge::empty();
                 if point.x < handle {
                     edges |= ResizeEdge::LEFT;
@@ -1465,9 +1474,16 @@ impl<W: LayoutElement> Tile<W> {
                 .floor()
                 .clamp(0., 16383.) as i32;
             let config = self.options.layout.ssd_titlebar;
-            let background = config
+            let active_background = config
                 .background_color
                 .unwrap_or(self.options.layout.background_color);
+            let background = if focus_ring {
+                active_background
+            } else {
+                config
+                    .inactive_background_color
+                    .unwrap_or(active_background)
+            };
             let text_color = if focus_ring {
                 config
                     .title_color

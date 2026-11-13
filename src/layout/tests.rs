@@ -23,11 +23,13 @@ fn ssd_titlebar_reserves_space_and_handles_hits() {
     let options = Rc::new(Options::from_config(&config));
     let window = TestWindow::new(TestWindowParams::new(1));
     window.0.has_ssd.set(true);
+    window.0.has_input_region.set(true);
+    let mut clock = Clock::with_time(Duration::ZERO);
     let mut tile = Tile::new(
         window.clone(),
         Size::from((800., 600.)),
         1.,
-        Clock::with_time(Duration::ZERO),
+        clock.clone(),
         options,
     );
 
@@ -41,12 +43,24 @@ fn ssd_titlebar_reserves_space_and_handles_hits() {
     );
     assert_eq!(
         tile.hit(Point::from((97., 100.))),
+        Some(HitType::Input {
+            win_pos: Point::from((0., 28.))
+        })
+    );
+    assert_eq!(
+        tile.hit(Point::from((103., 100.))),
         Some(HitType::SsdResize {
             edges: ResizeEdge::RIGHT
         })
     );
     assert_eq!(
         tile.hit(Point::from((50., 225.))),
+        Some(HitType::Input {
+            win_pos: Point::from((0., 28.))
+        })
+    );
+    assert_eq!(
+        tile.hit(Point::from((50., 231.))),
         Some(HitType::SsdResize {
             edges: ResizeEdge::BOTTOM
         })
@@ -73,6 +87,7 @@ fn ssd_titlebar_reserves_space_and_handles_hits() {
     tile.request_maximized(Size::from((800., 600.)), false, None);
     assert_eq!(window.0.requested_size.get(), Some(Size::from((800, 572))));
 
+    window.0.has_input_region.set(false);
     window.0.has_ssd.set(false);
     assert_eq!(tile.tile_size(), Size::from((100., 200.)));
     assert_eq!(tile.window_loc(), Point::from((0., 0.)));
@@ -94,7 +109,7 @@ fn ssd_titlebar_reserves_space_and_handles_hits() {
     assert!(window.communicate());
     tile.update_window();
     assert_eq!(tile.tile_size(), Size::from((800., 600.)));
-    assert_eq!(tile.window_loc(), Point::from((0., 0.)));
+    assert_eq!(tile.window_loc(), Point::from((0., 28.)));
     assert_ne!(
         tile.hit(Point::from((10., 10.))),
         Some(HitType::SsdTitlebar { button: None })
@@ -105,8 +120,37 @@ fn ssd_titlebar_reserves_space_and_handles_hits() {
             edges: ResizeEdge::TOP_LEFT
         })
     );
+    clock.set_complete_instantly(true);
+    tile.advance_animations();
+    assert_eq!(tile.window_loc(), Point::from((0., 0.)));
     tile.request_tile_size(Size::from((400., 500.)), false, None);
     assert_eq!(window.0.requested_size.get(), Some(Size::from((400, 472))));
+}
+
+#[test]
+fn ssd_titlebar_resize_animation_starts_at_previous_tile_height() {
+    let mut config = Config::default();
+    config.layout.ssd_titlebar.off = false;
+    let window = TestWindow::new(TestWindowParams::new(1));
+    window.0.has_ssd.set(true);
+    let mut tile = Tile::new(
+        window.clone(),
+        Size::from((800., 600.)),
+        1.,
+        Clock::with_time(Duration::ZERO),
+        Rc::new(Options::from_config(&config)),
+    );
+
+    let initial_size = tile.tile_size();
+    tile.request_tile_size(Size::from((400., 500.)), true, None);
+    assert!(window.communicate());
+    tile.update_window();
+    assert_eq!(tile.animated_tile_size(), initial_size);
+
+    tile.request_tile_size(Size::from((300., 400.)), true, None);
+    assert!(window.communicate());
+    tile.update_window();
+    assert_eq!(tile.animated_tile_size(), initial_size);
 }
 
 impl<W: LayoutElement> Default for Layout<W> {
@@ -135,6 +179,7 @@ struct TestWindowInner {
     animation_snapshot: RefCell<Option<LayoutElementRenderSnapshot>>,
     rules: ResolvedWindowRules,
     has_ssd: Cell<bool>,
+    has_input_region: Cell<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -188,6 +233,7 @@ impl TestWindow {
             animation_snapshot: RefCell::new(None),
             rules: params.rules.unwrap_or_default(),
             has_ssd: Cell::new(false),
+            has_input_region: Cell::new(false),
         }))
     }
 
@@ -259,8 +305,8 @@ impl LayoutElement for TestWindow {
         (0, 0).into()
     }
 
-    fn is_in_input_region(&self, _point: Point<f64, Logical>) -> bool {
-        false
+    fn is_in_input_region(&self, point: Point<f64, Logical>) -> bool {
+        self.0.has_input_region.get() && Rectangle::from_size(self.size().to_f64()).contains(point)
     }
 
     fn request_size(
