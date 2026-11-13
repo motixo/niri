@@ -2579,6 +2579,10 @@ impl State {
 
         self.niri.handle_focus_follows_mouse(&under);
 
+        let was_ssd_resize = matches!(
+            self.niri.pointer_contents.window.as_ref(),
+            Some((_, HitType::SsdResize { .. }))
+        );
         self.niri.pointer_contents.clone_from(&under);
 
         pointer.motion(
@@ -2590,6 +2594,7 @@ impl State {
                 time: event.time_msec(),
             },
         );
+        self.update_ssd_resize_cursor(was_ssd_resize);
 
         pointer.relative_motion(
             self,
@@ -2682,6 +2687,10 @@ impl State {
 
         self.niri.handle_focus_follows_mouse(&under);
 
+        let was_ssd_resize = matches!(
+            self.niri.pointer_contents.window.as_ref(),
+            Some((_, HitType::SsdResize { .. }))
+        );
         self.niri.pointer_contents.clone_from(&under);
 
         pointer.motion(
@@ -2693,6 +2702,7 @@ impl State {
                 time: event.time_msec(),
             },
         );
+        self.update_ssd_resize_cursor(was_ssd_resize);
 
         pointer.frame(self);
 
@@ -2868,6 +2878,46 @@ impl State {
 
                         // Don't activate the window under the cursor to avoid unnecessary
                         // scrolling when e.g. Mod+MMB clicking on a partially off-screen window.
+                        return;
+                    }
+                }
+            }
+
+            if button == Some(MouseButton::Left) && !pointer.is_grabbed() && !is_overview_open {
+                if let Some((window, HitType::SsdResize { edges })) =
+                    self.niri.contents_under(pointer.current_location()).window
+                {
+                    self.niri.layout.activate_window(&window);
+                    if self
+                        .niri
+                        .layout
+                        .interactive_resize_begin(window.clone(), edges)
+                    {
+                        let start_data = PointerGrabStartData {
+                            focus: None,
+                            button: button_code,
+                            location: pointer.current_location(),
+                        };
+                        pointer.set_grab(
+                            self,
+                            ResizeGrab::new(start_data, window),
+                            serial,
+                            Focus::Clear,
+                        );
+                        self.niri
+                            .cursor_manager
+                            .set_cursor_image(CursorImageStatus::Named(edges.cursor_icon()));
+                        self.niri.queue_redraw_all();
+                        pointer.button(
+                            self,
+                            &ButtonEvent {
+                                button: button_code,
+                                state: button_state,
+                                serial,
+                                time: event.time_msec(),
+                            },
+                        );
+                        pointer.frame(self);
                         return;
                     }
                 }

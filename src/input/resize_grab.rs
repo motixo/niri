@@ -8,6 +8,7 @@ use smithay::input::pointer::{
 use smithay::input::SeatHandler;
 use smithay::utils::{IsAlive, Logical, Point};
 
+use crate::layout::HitType;
 use crate::niri::State;
 
 pub struct ResizeGrab {
@@ -22,10 +23,21 @@ impl ResizeGrab {
 
     fn on_ungrab(&mut self, state: &mut State) {
         state.niri.layout.interactive_resize_end(&self.window);
-        state
+        let cursor = state
             .niri
-            .cursor_manager
-            .set_cursor_image(CursorImageStatus::default_named());
+            .pointer_contents
+            .window
+            .as_ref()
+            .and_then(|(_, hit)| {
+                if let HitType::SsdResize { edges } = hit {
+                    Some(edges.cursor_icon())
+                } else {
+                    None
+                }
+            });
+        state.niri.cursor_manager.set_cursor_image(
+            cursor.map_or_else(CursorImageStatus::default_named, CursorImageStatus::Named),
+        );
     }
 }
 

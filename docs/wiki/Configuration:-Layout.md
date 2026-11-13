@@ -251,7 +251,7 @@ layout {
 
 ### `ssd-titlebar` (this fork)
 
-This fork draws a 28-pixel titlebar for windows that negotiated server-side decorations, such as Kitty with `prefer-no-csd`. Windows that keep client-side decorations retain their own titlebars. The titlebar supports dragging, double-click maximize and restore, and close and maximize buttons on the right. Fullscreen windows have no titlebar.
+This fork draws a 28-pixel titlebar for windows that negotiated server-side decorations, such as Kitty with `prefer-no-csd`. Windows that keep client-side decorations retain their own titlebars. The titlebar supports dragging, double-click maximize and restore, close and maximize buttons on the right, and mouse-only resize from a 6-pixel strip along the tile edges. Fullscreen windows have no titlebar or compositor resize handles.
 
 It is enabled by default. You can customize it inside `layout {}`:
 

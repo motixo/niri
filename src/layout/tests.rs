@@ -34,6 +34,24 @@ fn ssd_titlebar_reserves_space_and_handles_hits() {
     assert_eq!(tile.tile_size(), Size::from((100., 228.)));
     assert_eq!(tile.window_loc(), Point::from((0., 28.)));
     assert_eq!(
+        tile.hit(Point::from((2., 2.))),
+        Some(HitType::SsdResize {
+            edges: ResizeEdge::TOP_LEFT
+        })
+    );
+    assert_eq!(
+        tile.hit(Point::from((97., 100.))),
+        Some(HitType::SsdResize {
+            edges: ResizeEdge::RIGHT
+        })
+    );
+    assert_eq!(
+        tile.hit(Point::from((50., 225.))),
+        Some(HitType::SsdResize {
+            edges: ResizeEdge::BOTTOM
+        })
+    );
+    assert_eq!(
         tile.hit(Point::from((10., 10.))),
         Some(HitType::SsdTitlebar { button: None })
     );
@@ -58,6 +76,12 @@ fn ssd_titlebar_reserves_space_and_handles_hits() {
     window.0.has_ssd.set(false);
     assert_eq!(tile.tile_size(), Size::from((100., 200.)));
     assert_eq!(tile.window_loc(), Point::from((0., 0.)));
+    assert_ne!(
+        tile.hit(Point::from((2., 2.))),
+        Some(HitType::SsdResize {
+            edges: ResizeEdge::TOP_LEFT
+        })
+    );
     assert_eq!(
         tile.hit(Point::from((10., 10.))),
         Some(HitType::Activate {
@@ -74,6 +98,12 @@ fn ssd_titlebar_reserves_space_and_handles_hits() {
     assert_ne!(
         tile.hit(Point::from((10., 10.))),
         Some(HitType::SsdTitlebar { button: None })
+    );
+    assert_ne!(
+        tile.hit(Point::from((2., 2.))),
+        Some(HitType::SsdResize {
+            edges: ResizeEdge::TOP_LEFT
+        })
     );
     tile.request_tile_size(Size::from((400., 500.)), false, None);
     assert_eq!(window.0.requested_size.get(), Some(Size::from((400, 472))));

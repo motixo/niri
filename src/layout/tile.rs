@@ -37,6 +37,7 @@ use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
 use crate::render_helpers::xray::{Xray, XrayPos};
 use crate::render_helpers::{RenderCtx, RenderTarget};
 use crate::utils::transaction::Transaction;
+use crate::utils::ResizeEdge;
 use crate::utils::{
     baba_is_float_offset, round_logical_in_physical, round_logical_in_physical_max1,
     to_physical_precise_round,
@@ -1052,6 +1053,27 @@ impl<W: LayoutElement> Tile<W> {
     pub fn hit(&self, point: Point<f64, Logical>) -> Option<HitType> {
         let offset = self.bob_offset();
         let point = point - offset;
+
+        if self.has_titlebar() {
+            let size = self.animated_tile_size();
+            if Rectangle::from_size(size).contains(point) {
+                let handle = 6.;
+                let mut edges = ResizeEdge::empty();
+                if point.x < handle {
+                    edges |= ResizeEdge::LEFT;
+                } else if point.x >= size.w - handle {
+                    edges |= ResizeEdge::RIGHT;
+                }
+                if point.y < handle {
+                    edges |= ResizeEdge::TOP;
+                } else if point.y >= size.h - handle {
+                    edges |= ResizeEdge::BOTTOM;
+                }
+                if !edges.is_empty() {
+                    return Some(HitType::SsdResize { edges });
+                }
+            }
+        }
 
         let height = self.titlebar_height();
         if height > 0. {

@@ -545,6 +545,8 @@ pub enum HitType {
     },
     /// Compositor-owned titlebar, outside the client's input region.
     SsdTitlebar { button: Option<TitlebarButton> },
+    /// Compositor-owned resize handle on an SSD tile edge.
+    SsdResize { edges: ResizeEdge },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -634,6 +636,7 @@ impl HitType {
             HitType::Input { win_pos } => *win_pos += offset,
             HitType::Activate { .. } => (),
             HitType::SsdTitlebar { .. } => (),
+            HitType::SsdResize { .. } => (),
         }
         self
     }
@@ -655,6 +658,9 @@ impl HitType {
             },
             HitType::Activate { .. } => self,
             HitType::SsdTitlebar { .. } => HitType::Activate {
+                is_tab_indicator: false,
+            },
+            HitType::SsdResize { .. } => HitType::Activate {
                 is_tab_indicator: false,
             },
         }

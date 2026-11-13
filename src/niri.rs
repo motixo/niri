@@ -860,6 +860,10 @@ impl State {
             under = PointContents::default();
         }
 
+        let was_ssd_resize = matches!(
+            self.niri.pointer_contents.window.as_ref(),
+            Some((_, HitType::SsdResize { .. }))
+        );
         self.niri.pointer_contents.clone_from(&under);
 
         let pointer = &self.niri.seat.get_pointer().unwrap();
@@ -872,6 +876,7 @@ impl State {
                 time: get_monotonic_time().as_millis() as u32,
             },
         );
+        self.update_ssd_resize_cursor(was_ssd_resize);
         pointer.frame(self);
 
         self.niri.maybe_activate_pointer_constraint();
@@ -1080,6 +1085,10 @@ impl State {
             }
         }
 
+        let was_ssd_resize = matches!(
+            self.niri.pointer_contents.window.as_ref(),
+            Some((_, HitType::SsdResize { .. }))
+        );
         self.niri.pointer_contents.clone_from(&under);
 
         pointer.motion(
@@ -1091,10 +1100,39 @@ impl State {
                 time: get_monotonic_time().as_millis() as u32,
             },
         );
+        self.update_ssd_resize_cursor(was_ssd_resize);
 
         self.niri.maybe_activate_pointer_constraint();
 
         true
+    }
+
+    pub(crate) fn update_ssd_resize_cursor(&mut self, was_ssd_resize: bool) {
+        if self.niri.seat.get_pointer().unwrap().is_grabbed() {
+            return;
+        }
+
+        let edges = self
+            .niri
+            .pointer_contents
+            .window
+            .as_ref()
+            .and_then(|(_, hit)| {
+                if let HitType::SsdResize { edges } = hit {
+                    Some(*edges)
+                } else {
+                    None
+                }
+            });
+        if let Some(edges) = edges {
+            self.niri
+                .cursor_manager
+                .set_cursor_image(CursorImageStatus::Named(edges.cursor_icon()));
+        } else if was_ssd_resize {
+            self.niri
+                .cursor_manager
+                .set_cursor_image(CursorImageStatus::default_named());
+        }
     }
 
     pub fn move_cursor_to_output(&mut self, output: &Output) {
