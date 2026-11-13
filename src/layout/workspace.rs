@@ -1446,25 +1446,14 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn set_window_floating(&mut self, id: Option<&W::Id>, floating: bool) {
-        let id = id
-            .cloned()
-            .or_else(|| self.active_window().map(|win| win.id().clone()));
-        if id.as_ref().map_or(self.floating_is_active.get(), |id| {
+        if id.map_or(self.floating_is_active.get(), |id| {
             self.floating.has_window(id)
-        }) != floating
+        }) == floating
         {
-            self.toggle_window_floating(id.as_ref());
+            return;
         }
 
-        if !floating {
-            if let Some(tile) = self
-                .scrolling
-                .tiles_mut()
-                .find(|tile| Some(tile.window().id()) == id.as_ref())
-            {
-                tile.restore_to_floating = false;
-            }
-        }
+        self.toggle_window_floating(id);
     }
 
     pub fn focus_floating(&mut self) {

@@ -3695,28 +3695,6 @@ fn restore_to_floating_persists_across_fullscreen_maximize() {
 }
 
 #[test]
-fn moving_maximized_window_to_tiling_clears_float_restore() {
-    let ops = [
-        Op::AddOutput(1),
-        Op::AddWindow {
-            params: TestWindowParams::new(1),
-        },
-        Op::ToggleWindowFloating { id: None },
-        Op::MaximizeWindowToEdges { id: None },
-        Op::SetWindowFloating {
-            id: Some(1),
-            floating: false,
-        },
-        Op::MaximizeWindowToEdges { id: None },
-    ];
-
-    let layout = check_ops(ops);
-    let workspace = layout.active_workspace().unwrap();
-    assert!(workspace.scrolling().tiles().next().is_some());
-    assert!(!workspace.is_floating(&1));
-}
-
-#[test]
 fn unmaximize_during_fullscreen_does_not_float() {
     let ops = [
         Op::AddOutput(1),
