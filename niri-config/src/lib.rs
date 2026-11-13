@@ -1269,6 +1269,17 @@ mod tests {
                 },
             ],
             layout: Layout {
+                ssd_titlebar: SsdTitlebar {
+                    off: false,
+                    height: 28.0,
+                    background_color: None,
+                    inactive_background_color: None,
+                    close_color: None,
+                    maximize_color: None,
+                    inactive_button_color: None,
+                    title_color: None,
+                    inactive_title_color: None,
+                },
                 focus_ring: FocusRing {
                     off: false,
                     width: 5.0,

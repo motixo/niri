@@ -48,7 +48,7 @@ use self::spatial_movement_grab::SpatialMovementGrab;
 #[cfg(feature = "dbus")]
 use crate::dbus::freedesktop_a11y::KbMonBlock;
 use crate::layout::scrolling::ScrollDirection;
-use crate::layout::{ActivateWindow, LayoutElement as _};
+use crate::layout::{ActivateWindow, HitType, LayoutElement as _, TitlebarButton};
 use crate::niri::{CastTarget, PointerVisibility, State};
 use crate::ui::mru::{WindowMru, WindowMruUi};
 use crate::ui::screenshot_ui::ScreenshotUi;
@@ -2875,6 +2875,81 @@ impl State {
 
             if let Some(mapped) = self.niri.window_under_cursor() {
                 let window = mapped.window.clone();
+
+                if button == Some(MouseButton::Left) && !pointer.is_grabbed() && !is_overview_open {
+                    let hit = self
+                        .niri
+                        .contents_under(pointer.current_location())
+                        .window
+                        .and_then(|(hit_window, hit)| (hit_window == window).then_some(hit));
+                    if let Some(HitType::SsdTitlebar {
+                        button: title_button,
+                    }) = hit
+                    {
+                        match title_button {
+                            Some(TitlebarButton::Close) => {
+                                mapped.last_ssd_titlebar_click().set(None);
+                                mapped.toplevel().send_close();
+                                self.niri.suppressed_buttons.insert(button_code);
+                                self.niri.queue_redraw_all();
+                                return;
+                            }
+                            Some(TitlebarButton::Maximize) => {
+                                mapped.last_ssd_titlebar_click().set(None);
+                                self.niri.layout.activate_window(&window);
+                                self.niri.layout.toggle_maximized(&window);
+                                self.niri.suppressed_buttons.insert(button_code);
+                                self.niri.queue_redraw_all();
+                                return;
+                            }
+                            None => {
+                                let now = get_monotonic_time();
+                                let location = pointer.current_location();
+                                let last = mapped
+                                    .last_ssd_titlebar_click()
+                                    .replace(Some((now, location)));
+                                if last.is_some_and(|(last_time, last_location)| {
+                                    let delta = location - last_location;
+                                    now.saturating_sub(last_time) <= DOUBLE_CLICK_TIME
+                                        && delta.x * delta.x + delta.y * delta.y <= 25.
+                                }) {
+                                    mapped.last_ssd_titlebar_click().set(None);
+                                    self.niri.layout.activate_window(&window);
+                                    self.niri.layout.toggle_maximized(&window);
+                                    self.niri.suppressed_buttons.insert(button_code);
+                                    self.niri.queue_redraw_all();
+                                    return;
+                                }
+
+                                self.niri.layout.activate_window(&window);
+                                let start_data = PointerGrabStartData {
+                                    focus: None,
+                                    button: button_code,
+                                    location,
+                                };
+                                let start_data = PointerOrTouchStartData::Pointer(start_data);
+                                if let Some(grab) =
+                                    MoveGrab::new(self, start_data, window.clone(), false, None)
+                                {
+                                    pointer.set_grab(self, grab, serial, Focus::Clear);
+                                }
+                                self.niri.queue_redraw_all();
+                                self.update_pointer_contents();
+                                pointer.button(
+                                    self,
+                                    &ButtonEvent {
+                                        button: button_code,
+                                        state: button_state,
+                                        serial,
+                                        time: event.time_msec(),
+                                    },
+                                );
+                                pointer.frame(self);
+                                return;
+                            }
+                        }
+                    }
+                }
 
                 // Check if we need to start an interactive move.
                 if button == Some(MouseButton::Left) && !pointer.is_grabbed() {

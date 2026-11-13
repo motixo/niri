@@ -234,6 +234,9 @@ pub trait LayoutElement {
     fn max_size(&self) -> Size<i32, Logical>;
     fn is_wl_surface(&self, wl_surface: &WlSurface) -> bool;
     fn has_ssd(&self) -> bool;
+    fn title(&self) -> Option<String> {
+        None
+    }
     fn set_preferred_scale_transform(&self, scale: output::Scale, transform: Transform);
     fn output_enter(&self, output: &Output);
     fn output_leave(&self, output: &Output);
@@ -540,6 +543,14 @@ pub enum HitType {
         /// Whether the hit was on the tab indicator.
         is_tab_indicator: bool,
     },
+    /// Compositor-owned titlebar, outside the client's input region.
+    SsdTitlebar { button: Option<TitlebarButton> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TitlebarButton {
+    Close,
+    Maximize,
 }
 
 #[derive(Debug)]
@@ -622,6 +633,7 @@ impl HitType {
         match &mut self {
             HitType::Input { win_pos } => *win_pos += offset,
             HitType::Activate { .. } => (),
+            HitType::SsdTitlebar { .. } => (),
         }
         self
     }
@@ -642,6 +654,9 @@ impl HitType {
                 is_tab_indicator: false,
             },
             HitType::Activate { .. } => self,
+            HitType::SsdTitlebar { .. } => HitType::Activate {
+                is_tab_indicator: false,
+            },
         }
     }
 }

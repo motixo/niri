@@ -249,6 +249,30 @@ layout {
 }
 ```
 
+### `ssd-titlebar` (this fork)
+
+This fork draws a 28-pixel titlebar for windows that negotiated server-side decorations, such as Kitty with `prefer-no-csd`. Windows that keep client-side decorations retain their own titlebars. The titlebar supports dragging, double-click maximize and restore, and close and maximize buttons on the right. Fullscreen windows have no titlebar.
+
+It is enabled by default. You can customize it inside `layout {}`:
+
+```kdl
+layout {
+    ssd-titlebar {
+        // off
+        height 28
+        background-color "#241e1e"
+        inactive-background-color "#171212"
+        close-color "#ffb4ab"
+        maximize-color "#9e8d8b"
+        inactive-button-color "#514342"
+        title-color "#ebe0df"
+        inactive-title-color "#9e8d8b"
+    }
+}
+```
+
+If colors are omitted, the background follows `layout.background-color`, the close button follows `focus-ring.urgent-color`, the maximize and inactive buttons follow `focus-ring.inactive-color`, and text color is chosen for contrast with the background. This lets a theme generator update the existing Niri color settings.
+
 ### `focus-ring` and `border`
 
 Focus ring and border are drawn around windows and indicate the active window.

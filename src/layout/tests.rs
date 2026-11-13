@@ -1,6 +1,6 @@
 use std::cell::{Cell, OnceCell, RefCell};
 
-use niri_config::utils::{Flag, MergeWith as _};
+use niri_config::utils::Flag;
 use niri_config::workspace::WorkspaceName;
 use niri_config::{
     CenterFocusedColumn, FloatOrInt, OutputName, Struts, TabIndicatorLength, TabIndicatorPosition,
@@ -15,6 +15,69 @@ use super::*;
 
 mod animations;
 mod fullscreen;
+
+#[test]
+fn ssd_titlebar_reserves_space_and_handles_hits() {
+    let mut config = Config::default();
+    config.layout.ssd_titlebar.off = false;
+    let options = Rc::new(Options::from_config(&config));
+    let window = TestWindow::new(TestWindowParams::new(1));
+    window.0.has_ssd.set(true);
+    let mut tile = Tile::new(
+        window.clone(),
+        Size::from((800., 600.)),
+        1.,
+        Clock::with_time(Duration::ZERO),
+        options,
+    );
+
+    assert_eq!(tile.tile_size(), Size::from((100., 228.)));
+    assert_eq!(tile.window_loc(), Point::from((0., 28.)));
+    assert_eq!(
+        tile.hit(Point::from((10., 10.))),
+        Some(HitType::SsdTitlebar { button: None })
+    );
+    assert_eq!(
+        tile.hit(Point::from((80., 10.))),
+        Some(HitType::SsdTitlebar {
+            button: Some(TitlebarButton::Close)
+        })
+    );
+    assert_eq!(
+        tile.hit(Point::from((60., 10.))),
+        Some(HitType::SsdTitlebar {
+            button: Some(TitlebarButton::Maximize)
+        })
+    );
+
+    tile.request_tile_size(Size::from((400., 500.)), false, None);
+    assert_eq!(window.0.requested_size.get(), Some(Size::from((400, 472))));
+    tile.request_maximized(Size::from((800., 600.)), false, None);
+    assert_eq!(window.0.requested_size.get(), Some(Size::from((800, 572))));
+
+    window.0.has_ssd.set(false);
+    assert_eq!(tile.tile_size(), Size::from((100., 200.)));
+    assert_eq!(tile.window_loc(), Point::from((0., 0.)));
+    assert_eq!(
+        tile.hit(Point::from((10., 10.))),
+        Some(HitType::Activate {
+            is_tab_indicator: false
+        })
+    );
+
+    window.0.has_ssd.set(true);
+    tile.request_fullscreen(false, None);
+    assert!(window.communicate());
+    tile.update_window();
+    assert_eq!(tile.tile_size(), Size::from((800., 600.)));
+    assert_eq!(tile.window_loc(), Point::from((0., 0.)));
+    assert_ne!(
+        tile.hit(Point::from((10., 10.))),
+        Some(HitType::SsdTitlebar { button: None })
+    );
+    tile.request_tile_size(Size::from((400., 500.)), false, None);
+    assert_eq!(window.0.requested_size.get(), Some(Size::from((400, 472))));
+}
 
 impl<W: LayoutElement> Default for Layout<W> {
     fn default() -> Self {
@@ -41,6 +104,7 @@ struct TestWindowInner {
     animate_next_configure: Cell<bool>,
     animation_snapshot: RefCell<Option<LayoutElementRenderSnapshot>>,
     rules: ResolvedWindowRules,
+    has_ssd: Cell<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +157,7 @@ impl TestWindow {
             animate_next_configure: Cell::new(false),
             animation_snapshot: RefCell::new(None),
             rules: params.rules.unwrap_or_default(),
+            has_ssd: Cell::new(false),
         }))
     }
 
@@ -202,7 +267,7 @@ impl LayoutElement for TestWindow {
     fn set_preferred_scale_transform(&self, _scale: output::Scale, _transform: Transform) {}
 
     fn has_ssd(&self) -> bool {
-        false
+        self.0.has_ssd.get()
     }
 
     fn output_enter(&self, _output: &Output) {}

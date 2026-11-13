@@ -1,19 +1,23 @@
 use core::f64;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use niri_config::utils::MergeWith as _;
 use niri_config::{Color, CornerRadius, GradientInterpolation};
 use niri_ipc::WindowLayout;
+use pango::FontDescription;
+use pangocairo::cairo::{self, ImageSurface};
+use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::element::{Element, Kind};
-use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
+use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
+use smithay::utils::{Logical, Point, Rectangle, Scale, Size, Transform};
 
 use super::focus_ring::{FocusRing, FocusRingRenderElement};
 use super::opening_window::{OpenAnimation, OpeningWindowRenderElement};
 use super::shadow::Shadow;
 use super::{
     HitType, LayoutElement, LayoutElementRenderElement, LayoutElementRenderSnapshot, Options,
-    SizeFrac, RESIZE_ANIMATION_THRESHOLD,
+    SizeFrac, TitlebarButton, RESIZE_ANIMATION_THRESHOLD,
 };
 use crate::animation::{Animation, Clock};
 use crate::layout::SizingMode;
@@ -23,16 +27,19 @@ use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::clipped_surface::{ClippedSurfaceRenderElement, RoundedCornerDamage};
 use crate::render_helpers::damage::ExtraDamage;
 use crate::render_helpers::offscreen::{OffscreenBuffer, OffscreenRenderElement};
+use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::resize::ResizeRenderElement;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::snapshot::RenderSnapshot;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
+use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
 use crate::render_helpers::xray::{Xray, XrayPos};
 use crate::render_helpers::{RenderCtx, RenderTarget};
 use crate::utils::transaction::Transaction;
 use crate::utils::{
     baba_is_float_offset, round_logical_in_physical, round_logical_in_physical_max1,
+    to_physical_precise_round,
 };
 
 /// Toplevel window with decorations.
@@ -49,6 +56,11 @@ pub struct Tile<W: LayoutElement> {
 
     /// The shadow around the window.
     shadow: Shadow,
+
+    /// Compositor-owned decoration for clients that negotiated SSD.
+    titlebar_background: BorderRenderElement,
+    titlebar_buttons: [BorderRenderElement; 2],
+    titlebar_text: RefCell<Option<TitleTexture>>,
 
     /// This tile's current sizing mode.
     ///
@@ -128,6 +140,7 @@ niri_render_elements! {
         Opening = OpeningWindowRenderElement,
         Resize = ResizeRenderElement,
         Border = BorderRenderElement,
+        Title = PrimaryGpuTextureRenderElement,
         Shadow = ShadowRenderElement,
         ClippedSurface = ClippedSurfaceRenderElement<R>,
         Offscreen = OffscreenRenderElement,
@@ -138,6 +151,15 @@ niri_render_elements! {
 
 pub type TileRenderSnapshot =
     RenderSnapshot<TileRenderElement<GlesRenderer>, TileRenderElement<GlesRenderer>>;
+
+#[derive(Debug)]
+struct TitleTexture {
+    title: String,
+    max_width: i32,
+    scale: f64,
+    color: Color,
+    buffer: TextureBuffer<GlesTexture>,
+}
 
 #[derive(Debug)]
 struct ResizeAnimation {
@@ -193,6 +215,9 @@ impl<W: LayoutElement> Tile<W> {
             border: FocusRing::new(border_config.into()),
             focus_ring: FocusRing::new(focus_ring_config),
             shadow: Shadow::new(shadow_config),
+            titlebar_background: BorderRenderElement::empty(),
+            titlebar_buttons: std::array::from_fn(|_| BorderRenderElement::empty()),
+            titlebar_text: RefCell::new(None),
             sizing_mode,
             fullscreen_backdrop: SolidColorBuffer::new((0., 0.), [0., 0., 0., 1.]),
             restore_to_floating: false,
@@ -259,6 +284,10 @@ impl<W: LayoutElement> Tile<W> {
         self.border.update_shaders();
         self.focus_ring.update_shaders();
         self.shadow.update_shaders();
+        self.titlebar_background.damage_all();
+        for button in &mut self.titlebar_buttons {
+            button.damage_all();
+        }
     }
 
     pub fn update_window(&mut self) {
@@ -537,6 +566,140 @@ impl<W: LayoutElement> Tile<W> {
         );
 
         self.fullscreen_backdrop.resize(animated_tile_size);
+
+        if self.has_titlebar() {
+            let config = self.options.layout.ssd_titlebar;
+            let layout = &self.options.layout;
+            let width = self.animated_window_size().w;
+            let height = self.titlebar_height();
+            let size = Size::from((width, height));
+            let area = Rectangle::from_size(size);
+            let radius = self.window.geometry_corner_radius();
+            let radius = CornerRadius {
+                top_left: radius.top_left,
+                top_right: radius.top_right,
+                bottom_right: 0.,
+                bottom_left: 0.,
+            };
+            let active_background = config.background_color.unwrap_or(layout.background_color);
+            let background = if is_active {
+                active_background
+            } else {
+                config
+                    .inactive_background_color
+                    .unwrap_or(active_background)
+            };
+            self.titlebar_background.update(
+                size,
+                area,
+                GradientInterpolation::default(),
+                background,
+                background,
+                0.,
+                area,
+                0.,
+                radius,
+                self.scale as f32,
+                1.,
+            );
+
+            let colors = if is_active {
+                [
+                    config.close_color.unwrap_or(layout.focus_ring.urgent_color),
+                    config
+                        .maximize_color
+                        .unwrap_or(layout.focus_ring.inactive_color),
+                ]
+            } else {
+                [config
+                    .inactive_button_color
+                    .unwrap_or(layout.focus_ring.inactive_color); 2]
+            };
+            let size = Size::from((10., 10.));
+            let area = Rectangle::from_size(size);
+            let radius = CornerRadius {
+                top_left: 5.,
+                top_right: 5.,
+                bottom_right: 5.,
+                bottom_left: 5.,
+            };
+            for (button, color) in self.titlebar_buttons.iter_mut().zip(colors) {
+                button.update(
+                    size,
+                    area,
+                    GradientInterpolation::default(),
+                    color,
+                    color,
+                    0.,
+                    area,
+                    0.,
+                    radius,
+                    self.scale as f32,
+                    1.,
+                );
+            }
+        }
+    }
+
+    fn has_titlebar(&self) -> bool {
+        !self.options.layout.ssd_titlebar.off
+            && self.window.has_ssd()
+            && !self.sizing_mode.is_fullscreen()
+    }
+
+    fn normal_titlebar_height(&self) -> f64 {
+        if !self.options.layout.ssd_titlebar.off && self.window.has_ssd() {
+            round_logical_in_physical_max1(self.scale, self.options.layout.ssd_titlebar.height)
+        } else {
+            0.
+        }
+    }
+
+    fn titlebar_height(&self) -> f64 {
+        if self.sizing_mode.is_fullscreen() {
+            0.
+        } else {
+            self.normal_titlebar_height()
+        }
+    }
+
+    fn titlebar_text_buffer(
+        &self,
+        renderer: &mut GlesRenderer,
+        max_width: i32,
+        color: Color,
+    ) -> Option<TextureBuffer<GlesTexture>> {
+        let title = self.window.title()?;
+        if title.is_empty() || max_width <= 0 {
+            return None;
+        }
+
+        let mut cache = self.titlebar_text.borrow_mut();
+        if let Some(cached) = cache.as_ref() {
+            if cached.title == title
+                && cached.max_width == max_width
+                && cached.scale == self.scale
+                && cached.color == color
+            {
+                return Some(cached.buffer.clone());
+            }
+        }
+
+        let buffer = match create_title_texture(renderer, &title, max_width, self.scale, color) {
+            Ok(buffer) => buffer,
+            Err(err) => {
+                warn!("error rendering SSD title: {err:?}");
+                return None;
+            }
+        };
+        *cache = Some(TitleTexture {
+            title,
+            max_width,
+            scale: self.scale,
+            color,
+            buffer: buffer.clone(),
+        });
+        Some(buffer)
     }
 
     pub fn scale(&self) -> f64 {
@@ -752,7 +915,8 @@ impl<W: LayoutElement> Tile<W> {
         // - During animations, the window remains centered within the tile; this is important for
         //   the to/from fullscreen animation.
         loc.x += (target_size.w - window_size.w) / 2.;
-        loc.y += (target_size.h - window_size.h) / 2.;
+        let titlebar_height = self.titlebar_height();
+        loc.y += (target_size.h - window_size.h - titlebar_height) / 2. + titlebar_height;
 
         // Round to physical pixels.
         loc = loc
@@ -778,6 +942,8 @@ impl<W: LayoutElement> Tile<W> {
             size.h += width * 2.;
         }
 
+        size.h += self.titlebar_height();
+
         size
     }
 
@@ -796,6 +962,8 @@ impl<W: LayoutElement> Tile<W> {
             size.w += width * 2.;
             size.h += width * 2.;
         }
+
+        size.h += self.titlebar_height();
 
         size
     }
@@ -885,6 +1053,27 @@ impl<W: LayoutElement> Tile<W> {
         let offset = self.bob_offset();
         let point = point - offset;
 
+        let height = self.titlebar_height();
+        if height > 0. {
+            let window_loc = self.window_loc();
+            let window_width = self.animated_window_size().w;
+            let x = point.x - window_loc.x;
+            let y = point.y - (window_loc.y - height);
+            if (0. ..window_width).contains(&x) && (0. ..height).contains(&y) {
+                let button = if window_width >= 52.
+                    && x >= window_width - 30.
+                    && x < window_width - 10.
+                {
+                    Some(TitlebarButton::Close)
+                } else if window_width >= 52. && x >= window_width - 50. && x < window_width - 30. {
+                    Some(TitlebarButton::Maximize)
+                } else {
+                    None
+                };
+                return Some(HitType::SsdTitlebar { button });
+            }
+        }
+
         if self.is_in_input_region(point) {
             let win_pos = self.buf_loc() + offset;
             Some(HitType::Input { win_pos })
@@ -910,6 +1099,8 @@ impl<W: LayoutElement> Tile<W> {
             size.h = f64::max(1., size.h - width * 2.);
         }
 
+        size.h = f64::max(1., size.h - self.normal_titlebar_height());
+
         // The size request has to be i32 unfortunately, due to Wayland. We floor here instead of
         // round to avoid situations where proportionally-sized columns don't fit on the screen
         // exactly.
@@ -930,6 +1121,7 @@ impl<W: LayoutElement> Tile<W> {
     }
 
     pub fn tile_height_for_window_height(&self, size: f64) -> f64 {
+        let size = size + self.normal_titlebar_height();
         if self.border.is_off() {
             size
         } else {
@@ -946,6 +1138,7 @@ impl<W: LayoutElement> Tile<W> {
     }
 
     pub fn window_height_for_tile_height(&self, size: f64) -> f64 {
+        let size = size - self.normal_titlebar_height();
         if self.border.is_off() {
             size
         } else {
@@ -959,6 +1152,8 @@ impl<W: LayoutElement> Tile<W> {
         animate: bool,
         transaction: Option<Transaction>,
     ) {
+        let mut size = size;
+        size.h = f64::max(1., size.h - self.normal_titlebar_height());
         self.window.request_size(
             size.to_i32_round(),
             SizingMode::Maximized,
@@ -990,6 +1185,7 @@ impl<W: LayoutElement> Tile<W> {
             size.h += width * 2.;
         }
 
+        size.h += self.normal_titlebar_height();
         size
     }
 
@@ -1008,6 +1204,9 @@ impl<W: LayoutElement> Tile<W> {
             }
         }
 
+        if size.h > 0. {
+            size.h += self.normal_titlebar_height();
+        }
         size
     }
 
@@ -1236,6 +1435,58 @@ impl<W: LayoutElement> Tile<W> {
                 .render_normal(ctx.r(), window_render_loc, scale, win_alpha, &mut |elem| {
                     push(clip(elem))
                 });
+        }
+
+        if self.has_titlebar() && BorderRenderElement::has_shader(ctx.renderer) {
+            let titlebar_loc = window_render_loc - Point::from((0., self.titlebar_height()));
+            let max_title_width = ((animated_window_size.w - 110.) * self.scale)
+                .floor()
+                .clamp(0., 16383.) as i32;
+            let config = self.options.layout.ssd_titlebar;
+            let background = config
+                .background_color
+                .unwrap_or(self.options.layout.background_color);
+            let text_color = if focus_ring {
+                config
+                    .title_color
+                    .unwrap_or_else(|| contrast_color(background))
+            } else {
+                config
+                    .inactive_title_color
+                    .unwrap_or_else(|| contrast_color(background) * 0.7)
+            };
+            if let Some(buffer) = self.titlebar_text_buffer(
+                ctx.renderer.as_gles_renderer(),
+                max_title_width,
+                text_color,
+            ) {
+                let text_height = buffer.logical_size().h;
+                let text_loc =
+                    titlebar_loc + Point::from((12., (self.titlebar_height() - text_height) / 2.));
+                let text = TextureRenderElement::from_texture_buffer(
+                    buffer,
+                    text_loc,
+                    win_alpha,
+                    None,
+                    None,
+                    Kind::Unspecified,
+                );
+                push(PrimaryGpuTextureRenderElement(text).into());
+            }
+            let button_y = (self.titlebar_height() - 10.) / 2.;
+            if animated_window_size.w >= 52. {
+                for (button, x) in self.titlebar_buttons.iter().zip([20., 40.]) {
+                    let button_loc =
+                        titlebar_loc + Point::from((animated_window_size.w - x - 5., button_y));
+                    push(button.clone().with_location(button_loc).into());
+                }
+            }
+            push(
+                self.titlebar_background
+                    .clone()
+                    .with_location(titlebar_loc)
+                    .into(),
+            );
         }
 
         if fullscreen_progress > 0. {
@@ -1554,5 +1805,60 @@ impl<W: LayoutElement> Tile<W> {
         let rounded = size.to_physical_precise_round(scale).to_logical(scale);
         assert_abs_diff_eq!(size.w, rounded.w, epsilon = 1e-5);
         assert_abs_diff_eq!(size.h, rounded.h, epsilon = 1e-5);
+    }
+}
+
+fn create_title_texture(
+    renderer: &mut GlesRenderer,
+    title: &str,
+    max_width: i32,
+    scale: f64,
+    color: Color,
+) -> anyhow::Result<TextureBuffer<GlesTexture>> {
+    let mut font = FontDescription::from_string("sans 11px");
+    font.set_absolute_size(to_physical_precise_round(scale, font.size()));
+
+    let surface = ImageSurface::create(cairo::Format::ARgb32, 0, 0)?;
+    let cr = cairo::Context::new(&surface)?;
+    let layout = pangocairo::functions::create_layout(&cr);
+    layout.context().set_round_glyph_positions(false);
+    layout.set_single_paragraph_mode(true);
+    layout.set_font_description(Some(&font));
+    layout.set_width(max_width.saturating_mul(pango::SCALE));
+    layout.set_ellipsize(pango::EllipsizeMode::End);
+    layout.set_text(title);
+
+    let (width, height) = layout.pixel_size();
+    anyhow::ensure!(width > 0 && height > 0);
+    let surface = ImageSurface::create(cairo::Format::ARgb32, width, height)?;
+    let cr = cairo::Context::new(&surface)?;
+    cr.set_source_rgba(
+        f64::from(color.r),
+        f64::from(color.g),
+        f64::from(color.b),
+        f64::from(color.a),
+    );
+    pangocairo::functions::show_layout(&cr, &layout);
+    drop(cr);
+
+    let data = surface.take_data().unwrap();
+    Ok(TextureBuffer::from_memory(
+        renderer,
+        &data,
+        Fourcc::Argb8888,
+        (width, height),
+        false,
+        scale,
+        Transform::Normal,
+        Vec::new(),
+    )?)
+}
+
+fn contrast_color(background: Color) -> Color {
+    let luminance = 0.2126 * background.r + 0.7152 * background.g + 0.0722 * background.b;
+    if luminance > 0.55 {
+        Color::new_unpremul(0.1, 0.1, 0.1, 1.)
+    } else {
+        Color::new_unpremul(0.92, 0.92, 0.92, 1.)
     }
 }

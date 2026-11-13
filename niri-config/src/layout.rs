@@ -9,6 +9,7 @@ use crate::{BorderRule, Color, FloatOrInt, InsertHintPart, ShadowRule, TabIndica
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layout {
+    pub ssd_titlebar: SsdTitlebar,
     pub focus_ring: FocusRing,
     pub border: Border,
     pub shadow: Shadow,
@@ -29,6 +30,7 @@ pub struct Layout {
 impl Default for Layout {
     fn default() -> Self {
         Self {
+            ssd_titlebar: SsdTitlebar::default(),
             focus_ring: FocusRing::default(),
             border: Border::default(),
             shadow: Shadow::default(),
@@ -60,6 +62,7 @@ impl MergeWith<LayoutPart> for Layout {
     fn merge_with(&mut self, part: &LayoutPart) {
         merge!(
             (self, part),
+            ssd_titlebar,
             focus_ring,
             border,
             shadow,
@@ -97,6 +100,8 @@ impl MergeWith<LayoutPart> for Layout {
 #[derive(knuffel::Decode, Debug, Default, Clone, PartialEq)]
 pub struct LayoutPart {
     #[knuffel(child)]
+    pub ssd_titlebar: Option<SsdTitlebarPart>,
+    #[knuffel(child)]
     pub focus_ring: Option<BorderRule>,
     #[knuffel(child)]
     pub border: Option<BorderRule>,
@@ -126,6 +131,91 @@ pub struct LayoutPart {
     pub struts: Option<Struts>,
     #[knuffel(child)]
     pub background_color: Option<Color>,
+}
+
+/// Decoration drawn by niri for clients that negotiated server-side decorations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SsdTitlebar {
+    pub off: bool,
+    pub height: f64,
+    pub background_color: Option<Color>,
+    pub inactive_background_color: Option<Color>,
+    pub close_color: Option<Color>,
+    pub maximize_color: Option<Color>,
+    pub inactive_button_color: Option<Color>,
+    pub title_color: Option<Color>,
+    pub inactive_title_color: Option<Color>,
+}
+
+impl Default for SsdTitlebar {
+    fn default() -> Self {
+        Self {
+            off: false,
+            height: 28.,
+            background_color: None,
+            inactive_background_color: None,
+            close_color: None,
+            maximize_color: None,
+            inactive_button_color: None,
+            title_color: None,
+            inactive_title_color: None,
+        }
+    }
+}
+
+impl MergeWith<SsdTitlebarPart> for SsdTitlebar {
+    fn merge_with(&mut self, part: &SsdTitlebarPart) {
+        self.off |= part.off;
+        if part.on {
+            self.off = false;
+        }
+        merge!((self, part), height);
+        if let Some(color) = part.background_color {
+            self.background_color = Some(color);
+        }
+        if let Some(color) = part.inactive_background_color {
+            self.inactive_background_color = Some(color);
+        }
+        if let Some(color) = part.close_color {
+            self.close_color = Some(color);
+        }
+        if let Some(color) = part.maximize_color {
+            self.maximize_color = Some(color);
+        }
+        if let Some(color) = part.inactive_button_color {
+            self.inactive_button_color = Some(color);
+        }
+        if let Some(color) = part.title_color {
+            self.title_color = Some(color);
+        }
+        if let Some(color) = part.inactive_title_color {
+            self.inactive_title_color = Some(color);
+        }
+    }
+}
+
+#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+pub struct SsdTitlebarPart {
+    #[knuffel(child)]
+    pub off: bool,
+    #[knuffel(child)]
+    pub on: bool,
+    #[knuffel(child, unwrap(argument))]
+    pub height: Option<FloatOrInt<16, 96>>,
+    #[knuffel(child)]
+    pub background_color: Option<Color>,
+    #[knuffel(child)]
+    pub inactive_background_color: Option<Color>,
+    #[knuffel(child)]
+    pub close_color: Option<Color>,
+    #[knuffel(child)]
+    pub maximize_color: Option<Color>,
+    #[knuffel(child)]
+    pub inactive_button_color: Option<Color>,
+    #[knuffel(child)]
+    pub title_color: Option<Color>,
+    #[knuffel(child)]
+    pub inactive_title_color: Option<Color>,
 }
 
 #[derive(knuffel::Decode, Debug, Clone, Copy, PartialEq)]
@@ -194,5 +284,35 @@ where
         } else {
             Ok(Self(None))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Config;
+
+    #[test]
+    fn ssd_titlebar_config_parses() {
+        let config = Config::parse_mem(
+            r##"
+            layout {
+                ssd-titlebar {
+                    on
+                    height 30
+                    background-color "#171212"
+                    close-color "#ffb4ab"
+                }
+            }
+            "##,
+        )
+        .unwrap();
+
+        assert!(!config.layout.ssd_titlebar.off);
+        assert_eq!(config.layout.ssd_titlebar.height, 30.);
+        assert_eq!(
+            config.layout.ssd_titlebar.background_color.unwrap().r,
+            23. / 255.
+        );
+        assert_eq!(config.layout.ssd_titlebar.close_color.unwrap().r, 1.);
     }
 }

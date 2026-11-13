@@ -135,6 +135,9 @@ pub struct Mapped {
     /// Used for double-resize-click tracking.
     last_interactive_resize_start: Cell<Option<(Duration, ResizeEdge)>>,
 
+    /// Last compositor titlebar click for double-click maximize.
+    last_ssd_titlebar_click: Cell<Option<(Duration, Point<f64, Logical>)>>,
+
     /// Whether this window is in windowed (fake) fullscreen.
     ///
     /// In this mode, the underlying window is told that it's fullscreen, while keeping it as
@@ -301,6 +304,7 @@ impl Mapped {
             pending_transactions: Vec::new(),
             interactive_resize: None,
             last_interactive_resize_start: Cell::new(None),
+            last_ssd_titlebar_click: Cell::new(None),
             is_windowed_fullscreen: false,
             is_pending_windowed_fullscreen: false,
             uncommitted_windowed_fullscreen: Vec::new(),
@@ -493,6 +497,10 @@ impl Mapped {
 
     pub fn last_interactive_resize_start(&self) -> &Cell<Option<(Duration, ResizeEdge)>> {
         &self.last_interactive_resize_start
+    }
+
+    pub fn last_ssd_titlebar_click(&self) -> &Cell<Option<(Duration, Point<f64, Logical>)>> {
+        &self.last_ssd_titlebar_click
     }
 
     pub fn render_for_screen_cast<R: NiriRenderer>(
@@ -943,6 +951,10 @@ impl LayoutElement for Mapped {
             }),
             _ => false,
         }
+    }
+
+    fn title(&self) -> Option<String> {
+        with_toplevel_role(self.toplevel(), |role| role.title.clone())
     }
 
     fn output_enter(&self, output: &Output) {
