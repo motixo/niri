@@ -2981,7 +2981,13 @@ impl State {
                                 };
                                 let start_data = PointerOrTouchStartData::Pointer(start_data);
                                 if let Some(grab) =
-                                    MoveGrab::new(self, start_data, window.clone(), false, None)
+                                    MoveGrab::new(
+                                        self,
+                                        start_data,
+                                        window.clone(),
+                                        false,
+                                        Some(CursorIcon::Grabbing),
+                                    )
                                 {
                                     pointer.set_grab(self, grab, serial, Focus::Clear);
                                 }

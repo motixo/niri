@@ -3854,7 +3854,9 @@ impl<W: LayoutElement> Layout<W> {
         let window_size = tile.window_size().upscale(zoom);
         let pointer_ratio_within_window = (
             f64::clamp(pointer_offset_within_window.x / window_size.w, 0., 1.),
-            f64::clamp(pointer_offset_within_window.y / window_size.h, 0., 1.),
+            // An SSD titlebar sits above the client window. Keep its negative offset so
+            // dragging the titlebar does not snap the pointer to the content edge.
+            f64::min(pointer_offset_within_window.y / window_size.h, 1.),
         );
 
         self.interactive_move = Some(InteractiveMoveState::Starting {

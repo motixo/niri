@@ -168,6 +168,73 @@ fn ssd_titlebar_gtk_height_and_button_hits() {
 }
 
 #[test]
+fn ssd_titlebar_drag_preserves_pointer_offset() {
+    use approx::assert_abs_diff_eq;
+
+    let mut config = Config::default();
+    config.layout.ssd_titlebar.height = 48.;
+    let mut layout = Layout::new(Clock::default(), &config);
+    Op::AddOutput(1).apply(&mut layout);
+
+    let window = TestWindow::new(TestWindowParams {
+        is_floating: true,
+        ..TestWindowParams::new(1)
+    });
+    window.0.has_ssd.set(true);
+    layout.add_window(
+        window,
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        true,
+        ActivateWindow::Yes,
+    );
+
+    let output = layout.outputs().next().unwrap().clone();
+    let (start_pos, window_height) = {
+        let mon = layout.monitor_for_output(&output).unwrap();
+        let (ws, ws_geo) = mon
+            .workspaces_with_render_geo()
+            .find(|(ws, _)| ws.has_window(&1))
+            .unwrap();
+        let (tile, offset, _) = ws
+            .tiles_with_render_positions()
+            .find(|(tile, _, _)| tile.window().id() == &1)
+            .unwrap();
+        assert_eq!(tile.window_loc().y, 48.);
+        (
+            ws_geo.loc + offset + Point::from((20., 24.)),
+            tile.window_size().h,
+        )
+    };
+
+    assert!(layout.interactive_move_begin(1, &output, start_pos));
+    let Some(InteractiveMoveState::Starting {
+        pointer_ratio_within_window,
+        ..
+    }) = &layout.interactive_move
+    else {
+        panic!("interactive move should start");
+    };
+    assert_abs_diff_eq!(pointer_ratio_within_window.1 * window_height, -24.);
+
+    assert!(layout.interactive_move_update(
+        &1,
+        Point::from((20., 20.)),
+        output,
+        start_pos + Point::from((20., 20.)),
+    ));
+    let Some(InteractiveMoveState::Moving(move_)) = &layout.interactive_move else {
+        panic!("floating window should be moving");
+    };
+    assert_abs_diff_eq!(
+        move_.pointer_ratio_within_window.1 * move_.tile.window_size().h,
+        -24.
+    );
+}
+
+#[test]
 fn ssd_titlebar_button_hit_regions_follow_config_reload() {
     let mut config = Config::default();
     config.layout.ssd_titlebar.height = 48.;
