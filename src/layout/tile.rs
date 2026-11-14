@@ -622,13 +622,13 @@ impl<W: LayoutElement> Tile<W> {
                     .inactive_button_color
                     .unwrap_or(layout.focus_ring.inactive_color); 2]
             };
-            let size = Size::from((10., 10.));
+            let size = Size::from((16., 16.));
             let area = Rectangle::from_size(size);
             let radius = CornerRadius {
-                top_left: 5.,
-                top_right: 5.,
-                bottom_right: 5.,
-                bottom_left: 5.,
+                top_left: 8.,
+                top_right: 8.,
+                bottom_right: 8.,
+                bottom_left: 8.,
             };
             for (button, color) in self.titlebar_buttons.iter_mut().zip(colors) {
                 button.update(
@@ -1091,12 +1091,12 @@ impl<W: LayoutElement> Tile<W> {
             let x = point.x - window_loc.x;
             let y = point.y - (window_loc.y - height);
             if (0. ..window_width).contains(&x) && (0. ..height).contains(&y) {
-                let button = if window_width >= 52.
-                    && x >= window_width - 30.
-                    && x < window_width - 10.
+                let button = if window_width >= 72.
+                    && x >= window_width - 34.
+                    && x < window_width - 6.
                 {
                     Some(TitlebarButton::Close)
-                } else if window_width >= 52. && x >= window_width - 50. && x < window_width - 30. {
+                } else if window_width >= 72. && x >= window_width - 62. && x < window_width - 34. {
                     Some(TitlebarButton::Maximize)
                 } else {
                     None
@@ -1470,7 +1470,7 @@ impl<W: LayoutElement> Tile<W> {
 
         if self.has_titlebar() && BorderRenderElement::has_shader(ctx.renderer) {
             let titlebar_loc = window_render_loc - Point::from((0., self.titlebar_height()));
-            let max_title_width = ((animated_window_size.w - 110.) * self.scale)
+            let max_title_width = ((animated_window_size.w - 128.) * self.scale)
                 .floor()
                 .clamp(0., 16383.) as i32;
             let config = self.options.layout.ssd_titlebar;
@@ -1498,9 +1498,12 @@ impl<W: LayoutElement> Tile<W> {
                 max_title_width,
                 text_color,
             ) {
-                let text_height = buffer.logical_size().h;
-                let text_loc =
-                    titlebar_loc + Point::from((12., (self.titlebar_height() - text_height) / 2.));
+                let text_size = buffer.logical_size();
+                let text_loc = titlebar_loc
+                    + Point::from((
+                        (animated_window_size.w - text_size.w) / 2.,
+                        (self.titlebar_height() - text_size.h) / 2.,
+                    ));
                 let text = TextureRenderElement::from_texture_buffer(
                     buffer,
                     text_loc,
@@ -1511,11 +1514,11 @@ impl<W: LayoutElement> Tile<W> {
                 );
                 push(PrimaryGpuTextureRenderElement(text).into());
             }
-            let button_y = (self.titlebar_height() - 10.) / 2.;
-            if animated_window_size.w >= 52. {
-                for (button, x) in self.titlebar_buttons.iter().zip([20., 40.]) {
+            let button_y = (self.titlebar_height() - 16.) / 2.;
+            if animated_window_size.w >= 72. {
+                for (button, x) in self.titlebar_buttons.iter().zip([20., 48.]) {
                     let button_loc =
-                        titlebar_loc + Point::from((animated_window_size.w - x - 5., button_y));
+                        titlebar_loc + Point::from((animated_window_size.w - x - 8., button_y));
                     push(button.clone().with_location(button_loc).into());
                 }
             }
@@ -1853,7 +1856,7 @@ fn create_title_texture(
     scale: f64,
     color: Color,
 ) -> anyhow::Result<TextureBuffer<GlesTexture>> {
-    let mut font = FontDescription::from_string("sans 11px");
+    let mut font = FontDescription::from_string("sans bold 14px");
     font.set_absolute_size(to_physical_precise_round(scale, font.size()));
 
     let surface = ImageSurface::create(cairo::Format::ARgb32, 0, 0)?;

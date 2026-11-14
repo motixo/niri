@@ -128,6 +128,42 @@ fn ssd_titlebar_reserves_space_and_handles_hits() {
 }
 
 #[test]
+fn ssd_titlebar_gtk_height_and_button_hits() {
+    let mut config = Config::default();
+    config.layout.ssd_titlebar.height = 48.;
+    let window = TestWindow::new(TestWindowParams::new(1));
+    window.0.has_ssd.set(true);
+    let mut tile = Tile::new(
+        window.clone(),
+        Size::from((800., 600.)),
+        1.,
+        Clock::with_time(Duration::ZERO),
+        Rc::new(Options::from_config(&config)),
+    );
+
+    assert_eq!(tile.tile_size(), Size::from((100., 248.)));
+    assert_eq!(tile.window_loc(), Point::from((0., 48.)));
+    assert_eq!(
+        tile.hit(Point::from((80., 24.))),
+        Some(HitType::SsdTitlebar {
+            button: Some(TitlebarButton::Close)
+        })
+    );
+    assert_eq!(
+        tile.hit(Point::from((52., 24.))),
+        Some(HitType::SsdTitlebar {
+            button: Some(TitlebarButton::Maximize)
+        })
+    );
+    assert_eq!(
+        tile.hit(Point::from((20., 24.))),
+        Some(HitType::SsdTitlebar { button: None })
+    );
+    tile.request_tile_size(Size::from((400., 500.)), false, None);
+    assert_eq!(window.0.requested_size.get(), Some(Size::from((400, 452))));
+}
+
+#[test]
 fn ssd_titlebar_resize_animation_starts_at_previous_tile_height() {
     let mut config = Config::default();
     config.layout.ssd_titlebar.off = false;
