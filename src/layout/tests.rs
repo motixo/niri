@@ -164,6 +164,69 @@ fn ssd_titlebar_gtk_height_and_button_hits() {
 }
 
 #[test]
+fn ssd_titlebar_button_hit_regions_follow_config_reload() {
+    let mut config = Config::default();
+    config.layout.ssd_titlebar.height = 48.;
+    let window = TestWindow::new(TestWindowParams::new(1));
+    window.0.has_ssd.set(true);
+    let mut tile = Tile::new(
+        window,
+        Size::from((800., 600.)),
+        1.,
+        Clock::with_time(Duration::ZERO),
+        Rc::new(Options::from_config(&config)),
+    );
+
+    config.layout.ssd_titlebar.button_size = 24.;
+    config.layout.ssd_titlebar.button_gap = 4.;
+    config.layout.ssd_titlebar.button_margin = 20.;
+    tile.update_config(
+        Size::from((800., 600.)),
+        1.,
+        Rc::new(Options::from_config(&config)),
+    );
+    assert_eq!(
+        tile.hit(Point::from((30., 24.))),
+        Some(HitType::SsdTitlebar {
+            button: Some(TitlebarButton::Maximize)
+        })
+    );
+    assert_eq!(
+        tile.hit(Point::from((90., 24.))),
+        Some(HitType::SsdTitlebar { button: None })
+    );
+}
+
+#[test]
+fn ssd_titlebar_joins_square_content_to_rounded_header() {
+    let mut rules = ResolvedWindowRules::default();
+    rules.geometry_corner_radius = Some(CornerRadius {
+        top_left: 6.,
+        top_right: 6.,
+        bottom_right: 6.,
+        bottom_left: 6.,
+    });
+    let mut params = TestWindowParams::new(1);
+    params.rules = Some(rules);
+    let window = TestWindow::new(params);
+    window.0.has_ssd.set(true);
+    let tile = Tile::new(
+        window.clone(),
+        Size::from((800., 600.)),
+        1.,
+        Clock::with_time(Duration::ZERO),
+        Rc::new(Options::from_config(&Config::default())),
+    );
+
+    let radius = tile.content_corner_radius();
+    assert_eq!((radius.top_left, radius.top_right), (0., 0.));
+    assert_eq!((radius.bottom_left, radius.bottom_right), (6., 6.));
+
+    window.0.has_ssd.set(false);
+    assert_eq!(tile.content_corner_radius().top_right, 6.);
+}
+
+#[test]
 fn ssd_titlebar_resize_animation_starts_at_previous_tile_height() {
     let mut config = Config::default();
     config.layout.ssd_titlebar.off = false;

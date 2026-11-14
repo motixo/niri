@@ -62,6 +62,7 @@ pub struct Tile<W: LayoutElement> {
     titlebar_background: BorderRenderElement,
     titlebar_buttons: [BorderRenderElement; 2],
     titlebar_text: RefCell<Option<TitleTexture>>,
+    button_icons: [RefCell<Option<TitleTexture>>; 2],
 
     /// This tile's current sizing mode.
     ///
@@ -159,6 +160,7 @@ struct TitleTexture {
     max_width: i32,
     scale: f64,
     color: Color,
+    font_size: f64,
     buffer: TextureBuffer<GlesTexture>,
 }
 
@@ -219,6 +221,7 @@ impl<W: LayoutElement> Tile<W> {
             titlebar_background: BorderRenderElement::empty(),
             titlebar_buttons: std::array::from_fn(|_| BorderRenderElement::empty()),
             titlebar_text: RefCell::new(None),
+            button_icons: std::array::from_fn(|_| RefCell::new(None)),
             sizing_mode,
             fullscreen_backdrop: SolidColorBuffer::new((0., 0.), [0., 0., 0., 1.]),
             restore_to_floating: false,
@@ -279,6 +282,11 @@ impl<W: LayoutElement> Tile<W> {
         self.shadow.update_config(shadow_config);
 
         self.window.update_config(self.options.blur);
+        let window_size = self.window_size();
+        let radius = self
+            .content_corner_radius()
+            .fit_to(window_size.w as f32, window_size.h as f32);
+        self.rounded_corner_damage.set_corner_radius(radius);
     }
 
     pub fn update_shaders(&mut self) {
@@ -440,8 +448,7 @@ impl<W: LayoutElement> Tile<W> {
 
         let window_size = self.window_size();
         let radius = self
-            .window
-            .geometry_corner_radius()
+            .content_corner_radius()
             .fit_to(window_size.w as f32, window_size.h as f32);
         self.rounded_corner_damage.set_corner_radius(radius);
     }
@@ -610,25 +617,16 @@ impl<W: LayoutElement> Tile<W> {
                 1.,
             );
 
-            let colors = if is_active {
-                [
-                    config.close_color.unwrap_or(layout.focus_ring.urgent_color),
-                    config
-                        .maximize_color
-                        .unwrap_or(layout.focus_ring.inactive_color),
-                ]
-            } else {
-                [config
-                    .inactive_button_color
-                    .unwrap_or(layout.focus_ring.inactive_color); 2]
-            };
-            let size = Size::from((16., 16.));
+            let colors = self.titlebar_button_colors(is_active);
+            let button_size = config.button_size.min(height);
+            let size = Size::from((button_size, button_size));
             let area = Rectangle::from_size(size);
+            let button_radius = config.button_radius.min(button_size / 2.) as f32;
             let radius = CornerRadius {
-                top_left: 8.,
-                top_right: 8.,
-                bottom_right: 8.,
-                bottom_left: 8.,
+                top_left: button_radius,
+                top_right: button_radius,
+                bottom_right: button_radius,
+                bottom_left: button_radius,
             };
             for (button, color) in self.titlebar_buttons.iter_mut().zip(colors) {
                 button.update(
@@ -670,6 +668,44 @@ impl<W: LayoutElement> Tile<W> {
         }
     }
 
+    pub(super) fn content_corner_radius(&self) -> CornerRadius {
+        let mut radius = self.window.geometry_corner_radius();
+        if self.has_titlebar() {
+            radius.top_left = 0.;
+            radius.top_right = 0.;
+        }
+        radius
+    }
+
+    fn titlebar_button_colors(&self, active: bool) -> [Color; 2] {
+        let config = self.options.layout.ssd_titlebar;
+        let layout = &self.options.layout;
+        if active {
+            [
+                config.close_color.unwrap_or(layout.focus_ring.urgent_color),
+                config
+                    .maximize_color
+                    .unwrap_or(layout.focus_ring.inactive_color),
+            ]
+        } else {
+            [config
+                .inactive_button_color
+                .unwrap_or(layout.focus_ring.inactive_color); 2]
+        }
+    }
+
+    fn titlebar_button_layout(&self, width: f64) -> Option<(f64, [f64; 2])> {
+        let config = self.options.layout.ssd_titlebar;
+        let size = config.button_size.min(self.titlebar_height());
+        if width < 2. * (size + config.button_margin) + config.button_gap {
+            return None;
+        }
+
+        let close = width - config.button_margin - size / 2.;
+        let maximize = close - size - config.button_gap;
+        Some((size, [close, maximize]))
+    }
+
     fn titlebar_text_buffer(
         &self,
         renderer: &mut GlesRenderer,
@@ -680,33 +716,15 @@ impl<W: LayoutElement> Tile<W> {
         if title.is_empty() || max_width <= 0 {
             return None;
         }
-
-        let mut cache = self.titlebar_text.borrow_mut();
-        if let Some(cached) = cache.as_ref() {
-            if cached.title == title
-                && cached.max_width == max_width
-                && cached.scale == self.scale
-                && cached.color == color
-            {
-                return Some(cached.buffer.clone());
-            }
-        }
-
-        let buffer = match create_title_texture(renderer, &title, max_width, self.scale, color) {
-            Ok(buffer) => buffer,
-            Err(err) => {
-                warn!("error rendering SSD title: {err:?}");
-                return None;
-            }
-        };
-        *cache = Some(TitleTexture {
-            title,
+        cached_text_buffer(
+            &self.titlebar_text,
+            renderer,
+            &title,
             max_width,
-            scale: self.scale,
+            self.scale,
             color,
-            buffer: buffer.clone(),
-        });
-        Some(buffer)
+            14.,
+        )
     }
 
     pub fn scale(&self) -> f64 {
@@ -1091,16 +1109,18 @@ impl<W: LayoutElement> Tile<W> {
             let x = point.x - window_loc.x;
             let y = point.y - (window_loc.y - height);
             if (0. ..window_width).contains(&x) && (0. ..height).contains(&y) {
-                let button = if window_width >= 72.
-                    && x >= window_width - 34.
-                    && x < window_width - 6.
-                {
-                    Some(TitlebarButton::Close)
-                } else if window_width >= 72. && x >= window_width - 62. && x < window_width - 34. {
-                    Some(TitlebarButton::Maximize)
-                } else {
-                    None
-                };
+                let button =
+                    self.titlebar_button_layout(window_width)
+                        .and_then(|(size, centers)| {
+                            let half = (size + self.options.layout.ssd_titlebar.button_gap) / 2.;
+                            if (centers[0] - half..centers[0] + half).contains(&x) {
+                                Some(TitlebarButton::Close)
+                            } else if (centers[1] - half..centers[1] + half).contains(&x) {
+                                Some(TitlebarButton::Maximize)
+                            } else {
+                                None
+                            }
+                        });
                 return Some(HitType::SsdTitlebar { button });
             }
         }
@@ -1300,8 +1320,7 @@ impl<W: LayoutElement> Tile<W> {
         // that submit a full-sized buffer before acking the fullscreen state (Firefox).
         let clip_to_geometry = fullscreen_progress < 1. && rules.clip_to_geometry == Some(true);
         let radius = self
-            .window
-            .geometry_corner_radius()
+            .content_corner_radius()
             .scaled_by(1. - expanded_progress as f32);
 
         // Popups go on top, whether it's resize or not.
@@ -1470,10 +1489,13 @@ impl<W: LayoutElement> Tile<W> {
 
         if self.has_titlebar() && BorderRenderElement::has_shader(ctx.renderer) {
             let titlebar_loc = window_render_loc - Point::from((0., self.titlebar_height()));
-            let max_title_width = ((animated_window_size.w - 128.) * self.scale)
+            let config = self.options.layout.ssd_titlebar;
+            let button_size = config.button_size.min(self.titlebar_height());
+            let title_padding =
+                (2. * button_size + config.button_gap + config.button_margin).max(64.);
+            let max_title_width = ((animated_window_size.w - 2. * title_padding) * self.scale)
                 .floor()
                 .clamp(0., 16383.) as i32;
-            let config = self.options.layout.ssd_titlebar;
             let active_background = config
                 .background_color
                 .unwrap_or(self.options.layout.background_color);
@@ -1514,11 +1536,40 @@ impl<W: LayoutElement> Tile<W> {
                 );
                 push(PrimaryGpuTextureRenderElement(text).into());
             }
-            let button_y = (self.titlebar_height() - 16.) / 2.;
-            if animated_window_size.w >= 72. {
-                for (button, x) in self.titlebar_buttons.iter().zip([20., 48.]) {
-                    let button_loc =
-                        titlebar_loc + Point::from((animated_window_size.w - x - 8., button_y));
+            if let Some((size, centers)) = self.titlebar_button_layout(animated_window_size.w) {
+                let button_y = (self.titlebar_height() - size) / 2.;
+                let colors = self.titlebar_button_colors(focus_ring);
+                for (idx, (button, center)) in self.titlebar_buttons.iter().zip(centers).enumerate()
+                {
+                    let button_loc = titlebar_loc + Point::from((center - size / 2., button_y));
+                    let icon = if idx == 0 { "×" } else { "□" };
+                    let icon_color = config
+                        .button_icon_color
+                        .unwrap_or_else(|| contrast_color(colors[idx]));
+                    let font_size = config.button_icon_size.min(size - 2.);
+                    let max_width = ((size - 2.) * self.scale).floor().clamp(1., 16383.) as i32;
+                    if let Some(buffer) = cached_text_buffer(
+                        &self.button_icons[idx],
+                        ctx.renderer.as_gles_renderer(),
+                        icon,
+                        max_width,
+                        self.scale,
+                        icon_color,
+                        font_size,
+                    ) {
+                        let icon_size = buffer.logical_size();
+                        let icon_loc = button_loc
+                            + Point::from(((size - icon_size.w) / 2., (size - icon_size.h) / 2.));
+                        let icon = TextureRenderElement::from_texture_buffer(
+                            buffer,
+                            icon_loc,
+                            win_alpha,
+                            None,
+                            None,
+                            Kind::Unspecified,
+                        );
+                        push(PrimaryGpuTextureRenderElement(icon).into());
+                    }
                     push(button.clone().with_location(button_loc).into());
                 }
             }
@@ -1849,14 +1900,54 @@ impl<W: LayoutElement> Tile<W> {
     }
 }
 
-fn create_title_texture(
+fn cached_text_buffer(
+    cache: &RefCell<Option<TitleTexture>>,
+    renderer: &mut GlesRenderer,
+    text: &str,
+    max_width: i32,
+    scale: f64,
+    color: Color,
+    font_size: f64,
+) -> Option<TextureBuffer<GlesTexture>> {
+    let mut cache = cache.borrow_mut();
+    if let Some(cached) = cache.as_ref() {
+        if cached.title == text
+            && cached.max_width == max_width
+            && cached.scale == scale
+            && cached.color == color
+            && cached.font_size == font_size
+        {
+            return Some(cached.buffer.clone());
+        }
+    }
+
+    let buffer = match create_text_texture(renderer, text, max_width, scale, color, font_size) {
+        Ok(buffer) => buffer,
+        Err(err) => {
+            warn!("error rendering SSD text: {err:?}");
+            return None;
+        }
+    };
+    *cache = Some(TitleTexture {
+        title: text.to_owned(),
+        max_width,
+        scale,
+        color,
+        font_size,
+        buffer: buffer.clone(),
+    });
+    Some(buffer)
+}
+
+fn create_text_texture(
     renderer: &mut GlesRenderer,
     title: &str,
     max_width: i32,
     scale: f64,
     color: Color,
+    font_size: f64,
 ) -> anyhow::Result<TextureBuffer<GlesTexture>> {
-    let mut font = FontDescription::from_string("sans bold 14px");
+    let mut font = FontDescription::from_string(&format!("sans bold {font_size}px"));
     font.set_absolute_size(to_physical_precise_round(scale, font.size()));
 
     let surface = ImageSurface::create(cairo::Format::ARgb32, 0, 0)?;

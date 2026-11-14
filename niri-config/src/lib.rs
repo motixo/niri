@@ -1272,6 +1272,12 @@ mod tests {
                 ssd_titlebar: SsdTitlebar {
                     off: false,
                     height: 28.0,
+                    button_size: 16.0,
+                    button_gap: 12.0,
+                    button_radius: 8.0,
+                    button_margin: 12.0,
+                    button_icon_size: 10.0,
+                    button_icon_color: None,
                     background_color: None,
                     inactive_background_color: None,
                     close_color: None,

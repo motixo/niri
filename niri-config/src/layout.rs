@@ -138,6 +138,12 @@ pub struct LayoutPart {
 pub struct SsdTitlebar {
     pub off: bool,
     pub height: f64,
+    pub button_size: f64,
+    pub button_gap: f64,
+    pub button_radius: f64,
+    pub button_margin: f64,
+    pub button_icon_size: f64,
+    pub button_icon_color: Option<Color>,
     pub background_color: Option<Color>,
     pub inactive_background_color: Option<Color>,
     pub close_color: Option<Color>,
@@ -152,6 +158,12 @@ impl Default for SsdTitlebar {
         Self {
             off: false,
             height: 28.,
+            button_size: 16.,
+            button_gap: 12.,
+            button_radius: 8.,
+            button_margin: 12.,
+            button_icon_size: 10.,
+            button_icon_color: None,
             background_color: None,
             inactive_background_color: None,
             close_color: None,
@@ -169,7 +181,18 @@ impl MergeWith<SsdTitlebarPart> for SsdTitlebar {
         if part.on {
             self.off = false;
         }
-        merge!((self, part), height);
+        merge!(
+            (self, part),
+            height,
+            button_size,
+            button_gap,
+            button_radius,
+            button_margin,
+            button_icon_size,
+        );
+        if let Some(color) = part.button_icon_color {
+            self.button_icon_color = Some(color);
+        }
         if let Some(color) = part.background_color {
             self.background_color = Some(color);
         }
@@ -202,6 +225,18 @@ pub struct SsdTitlebarPart {
     pub on: bool,
     #[knuffel(child, unwrap(argument))]
     pub height: Option<FloatOrInt<16, 96>>,
+    #[knuffel(child, unwrap(argument))]
+    pub button_size: Option<FloatOrInt<8, 64>>,
+    #[knuffel(child, unwrap(argument))]
+    pub button_gap: Option<FloatOrInt<0, 64>>,
+    #[knuffel(child, unwrap(argument))]
+    pub button_radius: Option<FloatOrInt<0, 32>>,
+    #[knuffel(child, unwrap(argument))]
+    pub button_margin: Option<FloatOrInt<0, 64>>,
+    #[knuffel(child, unwrap(argument))]
+    pub button_icon_size: Option<FloatOrInt<4, 32>>,
+    #[knuffel(child)]
+    pub button_icon_color: Option<Color>,
     #[knuffel(child)]
     pub background_color: Option<Color>,
     #[knuffel(child)]
@@ -299,6 +334,12 @@ mod tests {
                 ssd-titlebar {
                     on
                     height 30
+                    button-size 20
+                    button-gap 10
+                    button-radius 6
+                    button-margin 14
+                    button-icon-size 11
+                    button-icon-color "#241e1e"
                     background-color "#171212"
                     close-color "#ffb4ab"
                 }
@@ -309,6 +350,15 @@ mod tests {
 
         assert!(!config.layout.ssd_titlebar.off);
         assert_eq!(config.layout.ssd_titlebar.height, 30.);
+        assert_eq!(config.layout.ssd_titlebar.button_size, 20.);
+        assert_eq!(config.layout.ssd_titlebar.button_gap, 10.);
+        assert_eq!(config.layout.ssd_titlebar.button_radius, 6.);
+        assert_eq!(config.layout.ssd_titlebar.button_margin, 14.);
+        assert_eq!(config.layout.ssd_titlebar.button_icon_size, 11.);
+        assert_eq!(
+            config.layout.ssd_titlebar.button_icon_color.unwrap().r,
+            36. / 255.
+        );
         assert_eq!(
             config.layout.ssd_titlebar.background_color.unwrap().r,
             23. / 255.

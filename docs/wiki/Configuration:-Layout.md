@@ -251,7 +251,7 @@ layout {
 
 ### `ssd-titlebar` (this fork)
 
-This fork draws a 28-pixel titlebar for windows that negotiated server-side decorations, such as Kitty with `prefer-no-csd`. Windows that keep client-side decorations retain their own titlebars. The titlebar supports dragging, double-click maximize and restore, close and maximize buttons on the right, and mouse-only resize from a 6-pixel area around the tile edges. Application input regions keep priority over resize handles. Fullscreen windows have no titlebar or compositor resize handles.
+This fork draws a configurable titlebar (28 pixels high by default) for windows that negotiated server-side decorations, such as Kitty with `prefer-no-csd`. Windows that keep client-side decorations retain their own titlebars. The titlebar supports dragging, double-click maximize and restore, close and maximize buttons on the right, and mouse-only resize from a 6-pixel area around the tile edges. Application input regions keep priority over resize handles. Fullscreen windows have no titlebar or compositor resize handles.
 
 It is enabled by default. You can customize it inside `layout {}`:
 
@@ -259,7 +259,13 @@ It is enabled by default. You can customize it inside `layout {}`:
 layout {
     ssd-titlebar {
         // off
-        height 28
+        height 48
+        button-size 16
+        button-gap 12
+        button-radius 8
+        button-margin 12
+        button-icon-size 10
+        // button-icon-color "#241e1e"
         background-color "#241e1e"
         inactive-background-color "#171212"
         close-color "#ffb4ab"
@@ -272,6 +278,8 @@ layout {
 ```
 
 If colors are omitted, the background follows `layout.background-color`, the close button follows `focus-ring.urgent-color`, the maximize and inactive buttons follow `focus-ring.inactive-color`, and text color is chosen for contrast with the background. This lets a theme generator update the existing Niri color settings.
+
+`button-size`, `button-gap`, `button-radius`, and `button-margin` control the button diameter, space between buttons, corner radius, and right inset in logical pixels. The buttons show close and maximize icons; `button-icon-size` and `button-icon-color` control their appearance. By default icon color contrasts with each button's fill. Button size is limited to the titlebar height, radius to half the button size, and icon size to two pixels less than the button. Run `niri msg action load-config-file` after editing these values; no rebuild is needed.
 
 ### `focus-ring` and `border`
 
