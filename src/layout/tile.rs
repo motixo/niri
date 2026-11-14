@@ -62,7 +62,7 @@ pub struct Tile<W: LayoutElement> {
     titlebar_background: BorderRenderElement,
     titlebar_buttons: [BorderRenderElement; 2],
     titlebar_text: RefCell<Option<TitleTexture>>,
-    button_icons: [RefCell<Option<TitleTexture>>; 2],
+    button_icons: [RefCell<Option<ButtonIconTexture>>; 2],
 
     /// This tile's current sizing mode.
     ///
@@ -161,6 +161,16 @@ struct TitleTexture {
     scale: f64,
     color: Color,
     font_size: f64,
+    buffer: TextureBuffer<GlesTexture>,
+}
+
+#[derive(Debug)]
+struct ButtonIconTexture {
+    button: TitlebarButton,
+    maximized: bool,
+    scale: f64,
+    color: Color,
+    size: f64,
     buffer: TextureBuffer<GlesTexture>,
 }
 
@@ -1112,7 +1122,10 @@ impl<W: LayoutElement> Tile<W> {
                 let button =
                     self.titlebar_button_layout(window_width)
                         .and_then(|(size, centers)| {
-                            let half = (size + self.options.layout.ssd_titlebar.button_gap) / 2.;
+                            let half = size / 2.;
+                            if !(height / 2. - half..height / 2. + half).contains(&y) {
+                                return None;
+                            }
                             if (centers[0] - half..centers[0] + half).contains(&x) {
                                 Some(TitlebarButton::Close)
                             } else if (centers[1] - half..centers[1] + half).contains(&x) {
@@ -1542,33 +1555,45 @@ impl<W: LayoutElement> Tile<W> {
                 for (idx, (button, center)) in self.titlebar_buttons.iter().zip(centers).enumerate()
                 {
                     let button_loc = titlebar_loc + Point::from((center - size / 2., button_y));
-                    let icon = if idx == 0 { "×" } else { "□" };
-                    let icon_color = config
-                        .button_icon_color
+                    let button_type = if idx == 0 {
+                        TitlebarButton::Close
+                    } else {
+                        TitlebarButton::Maximize
+                    };
+                    if self.window.ssd_titlebar_hover() == Some(button_type) {
+                        let icon_color = (if idx == 0 {
+                            config.close_icon_color
+                        } else {
+                            config.maximize_icon_color
+                        })
+                        .or(config.button_icon_color)
                         .unwrap_or_else(|| contrast_color(colors[idx]));
-                    let font_size = config.button_icon_size.min(size - 2.);
-                    let max_width = ((size - 2.) * self.scale).floor().clamp(1., 16383.) as i32;
-                    if let Some(buffer) = cached_text_buffer(
-                        &self.button_icons[idx],
-                        ctx.renderer.as_gles_renderer(),
-                        icon,
-                        max_width,
-                        self.scale,
-                        icon_color,
-                        font_size,
-                    ) {
-                        let icon_size = buffer.logical_size();
-                        let icon_loc = button_loc
-                            + Point::from(((size - icon_size.w) / 2., (size - icon_size.h) / 2.));
-                        let icon = TextureRenderElement::from_texture_buffer(
-                            buffer,
-                            icon_loc,
-                            win_alpha,
-                            None,
-                            None,
-                            Kind::Unspecified,
-                        );
-                        push(PrimaryGpuTextureRenderElement(icon).into());
+                        let icon_size = config.button_icon_size.min(size);
+                        if let Some(buffer) = cached_button_icon_buffer(
+                            &self.button_icons[idx],
+                            ctx.renderer.as_gles_renderer(),
+                            button_type,
+                            self.sizing_mode.is_maximized(),
+                            self.scale,
+                            icon_color,
+                            icon_size,
+                        ) {
+                            let texture_size = buffer.logical_size();
+                            let icon_loc = button_loc
+                                + Point::from((
+                                    (size - texture_size.w) / 2.,
+                                    (size - texture_size.h) / 2.,
+                                ));
+                            let icon = TextureRenderElement::from_texture_buffer(
+                                buffer,
+                                icon_loc,
+                                win_alpha,
+                                None,
+                                None,
+                                Kind::Unspecified,
+                            );
+                            push(PrimaryGpuTextureRenderElement(icon).into());
+                        }
                     }
                     push(button.clone().with_location(button_loc).into());
                 }
@@ -1937,6 +1962,123 @@ fn cached_text_buffer(
         buffer: buffer.clone(),
     });
     Some(buffer)
+}
+
+fn cached_button_icon_buffer(
+    cache: &RefCell<Option<ButtonIconTexture>>,
+    renderer: &mut GlesRenderer,
+    button: TitlebarButton,
+    maximized: bool,
+    scale: f64,
+    color: Color,
+    size: f64,
+) -> Option<TextureBuffer<GlesTexture>> {
+    let mut cache = cache.borrow_mut();
+    if let Some(cached) = cache.as_ref() {
+        if cached.button == button
+            && cached.maximized == maximized
+            && cached.scale == scale
+            && cached.color == color
+            && cached.size == size
+        {
+            return Some(cached.buffer.clone());
+        }
+    }
+
+    let buffer = match create_button_icon_texture(renderer, button, maximized, scale, color, size) {
+        Ok(buffer) => buffer,
+        Err(err) => {
+            warn!("error rendering SSD button icon: {err:?}");
+            return None;
+        }
+    };
+    *cache = Some(ButtonIconTexture {
+        button,
+        maximized,
+        scale,
+        color,
+        size,
+        buffer: buffer.clone(),
+    });
+    Some(buffer)
+}
+
+fn create_button_icon_texture(
+    renderer: &mut GlesRenderer,
+    button: TitlebarButton,
+    maximized: bool,
+    scale: f64,
+    color: Color,
+    size: f64,
+) -> anyhow::Result<TextureBuffer<GlesTexture>> {
+    let pixels = (size * scale).round().clamp(1., 4096.) as i32;
+    let surface = ImageSurface::create(cairo::Format::ARgb32, pixels, pixels)?;
+    let cr = cairo::Context::new(&surface)?;
+    cr.scale(f64::from(pixels) / 16., f64::from(pixels) / 16.);
+    cr.set_source_rgba(
+        f64::from(color.r),
+        f64::from(color.g),
+        f64::from(color.b),
+        f64::from(color.a),
+    );
+
+    match button {
+        TitlebarButton::Close => {
+            cr.set_line_width(2.);
+            cr.set_line_cap(cairo::LineCap::Round);
+            cr.move_to(5., 5.);
+            cr.line_to(11., 11.);
+            cr.move_to(11., 5.);
+            cr.line_to(5., 11.);
+            cr.stroke()?;
+        }
+        TitlebarButton::Maximize => {
+            for rotated in [false, true] {
+                cr.save()?;
+                if rotated {
+                    cr.translate(16., 16.);
+                    cr.rotate(std::f64::consts::PI);
+                }
+                if maximized {
+                    // Linesty's window-restore-symbolic arrow, in a 16x16 viewbox.
+                    cr.move_to(8., 8.);
+                    cr.line_to(4., 8.);
+                    cr.line_to(5.5, 9.5);
+                    cr.line_to(4.21053, 10.8421);
+                    cr.curve_to(4.21053, 10.8421, 3.73684, 11.3158, 4.21053, 11.7895);
+                    cr.curve_to(4.68421, 12.2632, 5.1579, 11.7895, 5.1579, 11.7895);
+                    cr.line_to(6.5, 10.5);
+                    cr.line_to(8., 12.);
+                } else {
+                    // Linesty's window-maximize-symbolic arrow, in a 16x16 viewbox.
+                    cr.move_to(4., 12.);
+                    cr.line_to(8., 12.);
+                    cr.line_to(6.5, 10.5);
+                    cr.line_to(7.78947, 9.15789);
+                    cr.curve_to(7.78947, 9.15789, 8.26316, 8.68421, 7.78947, 8.21053);
+                    cr.curve_to(7.31579, 7.73684, 6.8421, 8.21053, 6.8421, 8.21053);
+                    cr.line_to(5.5, 9.5);
+                    cr.line_to(4., 8.);
+                }
+                cr.close_path();
+                cr.fill()?;
+                cr.restore()?;
+            }
+        }
+    }
+    drop(cr);
+
+    let data = surface.take_data()?;
+    Ok(TextureBuffer::from_memory(
+        renderer,
+        &data,
+        Fourcc::Argb8888,
+        (pixels, pixels),
+        false,
+        scale,
+        Transform::Normal,
+        Vec::new(),
+    )?)
 }
 
 fn create_text_texture(

@@ -144,6 +144,8 @@ pub struct SsdTitlebar {
     pub button_margin: f64,
     pub button_icon_size: f64,
     pub button_icon_color: Option<Color>,
+    pub close_icon_color: Option<Color>,
+    pub maximize_icon_color: Option<Color>,
     pub background_color: Option<Color>,
     pub inactive_background_color: Option<Color>,
     pub close_color: Option<Color>,
@@ -164,6 +166,8 @@ impl Default for SsdTitlebar {
             button_margin: 12.,
             button_icon_size: 10.,
             button_icon_color: None,
+            close_icon_color: None,
+            maximize_icon_color: None,
             background_color: None,
             inactive_background_color: None,
             close_color: None,
@@ -192,6 +196,12 @@ impl MergeWith<SsdTitlebarPart> for SsdTitlebar {
         );
         if let Some(color) = part.button_icon_color {
             self.button_icon_color = Some(color);
+        }
+        if let Some(color) = part.close_icon_color {
+            self.close_icon_color = Some(color);
+        }
+        if let Some(color) = part.maximize_icon_color {
+            self.maximize_icon_color = Some(color);
         }
         if let Some(color) = part.background_color {
             self.background_color = Some(color);
@@ -237,6 +247,10 @@ pub struct SsdTitlebarPart {
     pub button_icon_size: Option<FloatOrInt<4, 32>>,
     #[knuffel(child)]
     pub button_icon_color: Option<Color>,
+    #[knuffel(child)]
+    pub close_icon_color: Option<Color>,
+    #[knuffel(child)]
+    pub maximize_icon_color: Option<Color>,
     #[knuffel(child)]
     pub background_color: Option<Color>,
     #[knuffel(child)]
@@ -340,6 +354,8 @@ mod tests {
                     button-margin 14
                     button-icon-size 11
                     button-icon-color "#241e1e"
+                    close-icon-color "#690005"
+                    maximize-icon-color "#171212"
                     background-color "#171212"
                     close-color "#ffb4ab"
                 }
@@ -358,6 +374,14 @@ mod tests {
         assert_eq!(
             config.layout.ssd_titlebar.button_icon_color.unwrap().r,
             36. / 255.
+        );
+        assert_eq!(
+            config.layout.ssd_titlebar.close_icon_color.unwrap().r,
+            105. / 255.
+        );
+        assert_eq!(
+            config.layout.ssd_titlebar.maximize_icon_color.unwrap().r,
+            23. / 255.
         );
         assert_eq!(
             config.layout.ssd_titlebar.background_color.unwrap().r,

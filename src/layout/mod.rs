@@ -135,6 +135,11 @@ pub trait LayoutElement {
     /// Unique ID of this element.
     fn id(&self) -> &Self::Id;
 
+    /// Button currently hovered in the compositor-owned titlebar, if any.
+    fn ssd_titlebar_hover(&self) -> Option<TitlebarButton> {
+        None
+    }
+
     /// Updates the config for the element.
     fn update_config(&mut self, blur_config: niri_config::Blur) {
         let _ = blur_config;

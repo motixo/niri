@@ -1278,6 +1278,8 @@ mod tests {
                     button_margin: 12.0,
                     button_icon_size: 10.0,
                     button_icon_color: None,
+                    close_icon_color: None,
+                    maximize_icon_color: None,
                     background_color: None,
                     inactive_background_color: None,
                     close_color: None,

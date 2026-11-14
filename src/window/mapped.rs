@@ -138,6 +138,9 @@ pub struct Mapped {
     /// Last compositor titlebar click for double-click maximize.
     last_ssd_titlebar_click: Cell<Option<(Duration, Point<f64, Logical>)>>,
 
+    /// Currently hovered compositor titlebar button.
+    ssd_titlebar_hover: Cell<Option<crate::layout::TitlebarButton>>,
+
     /// Whether this window is in windowed (fake) fullscreen.
     ///
     /// In this mode, the underlying window is told that it's fullscreen, while keeping it as
@@ -305,6 +308,7 @@ impl Mapped {
             interactive_resize: None,
             last_interactive_resize_start: Cell::new(None),
             last_ssd_titlebar_click: Cell::new(None),
+            ssd_titlebar_hover: Cell::new(None),
             is_windowed_fullscreen: false,
             is_pending_windowed_fullscreen: false,
             uncommitted_windowed_fullscreen: Vec::new(),
@@ -503,6 +507,10 @@ impl Mapped {
         &self.last_ssd_titlebar_click
     }
 
+    pub fn set_ssd_titlebar_hover(&self, button: Option<crate::layout::TitlebarButton>) {
+        self.ssd_titlebar_hover.set(button);
+    }
+
     pub fn render_for_screen_cast<R: NiriRenderer>(
         &self,
         renderer: &mut R,
@@ -632,6 +640,10 @@ impl LayoutElement for Mapped {
 
     fn id(&self) -> &Self::Id {
         &self.window
+    }
+
+    fn ssd_titlebar_hover(&self) -> Option<crate::layout::TitlebarButton> {
+        self.ssd_titlebar_hover.get()
     }
 
     fn update_config(&mut self, blur_config: niri_config::Blur) {

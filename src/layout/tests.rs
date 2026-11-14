@@ -76,10 +76,14 @@ fn ssd_titlebar_reserves_space_and_handles_hits() {
         })
     );
     assert_eq!(
-        tile.hit(Point::from((60., 10.))),
+        tile.hit(Point::from((52., 10.))),
         Some(HitType::SsdTitlebar {
             button: Some(TitlebarButton::Maximize)
         })
+    );
+    assert_eq!(
+        tile.hit(Point::from((66., 10.))),
+        Some(HitType::SsdTitlebar { button: None })
     );
 
     tile.request_tile_size(Size::from((400., 500.)), false, None);

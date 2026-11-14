@@ -864,6 +864,7 @@ impl State {
             self.niri.pointer_contents.window.as_ref(),
             Some((_, HitType::SsdResize { .. }))
         );
+        self.niri.update_ssd_titlebar_hover(&under);
         self.niri.pointer_contents.clone_from(&under);
 
         let pointer = &self.niri.seat.get_pointer().unwrap();
@@ -1089,6 +1090,7 @@ impl State {
             self.niri.pointer_contents.window.as_ref(),
             Some((_, HitType::SsdResize { .. }))
         );
+        self.niri.update_ssd_titlebar_hover(&under);
         self.niri.pointer_contents.clone_from(&under);
 
         pointer.motion(
@@ -3310,6 +3312,33 @@ impl Niri {
     pub fn window_under_cursor(&self) -> Option<&Mapped> {
         let pos = self.seat.get_pointer().unwrap().current_location();
         self.window_under(pos)
+    }
+
+    pub fn update_ssd_titlebar_hover(&self, contents: &PointContents) {
+        let button_under = |contents: &PointContents| {
+            contents.window.as_ref().and_then(|(window, hit)| {
+                if let HitType::SsdTitlebar {
+                    button: Some(button),
+                } = hit
+                {
+                    Some((window.clone(), *button))
+                } else {
+                    None
+                }
+            })
+        };
+        let previous = button_under(&self.pointer_contents);
+        let hovered = button_under(contents);
+        if previous == hovered {
+            return;
+        }
+
+        self.layout.with_windows(|mapped, _, _, _| {
+            let button = hovered
+                .as_ref()
+                .and_then(|(window, button)| (&mapped.window == window).then_some(*button));
+            mapped.set_ssd_titlebar_hover(button);
+        });
     }
 
     /// Returns contents under the given point.

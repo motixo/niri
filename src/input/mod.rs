@@ -2583,6 +2583,7 @@ impl State {
             self.niri.pointer_contents.window.as_ref(),
             Some((_, HitType::SsdResize { .. }))
         );
+        self.niri.update_ssd_titlebar_hover(&under);
         self.niri.pointer_contents.clone_from(&under);
 
         pointer.motion(
@@ -2691,6 +2692,7 @@ impl State {
             self.niri.pointer_contents.window.as_ref(),
             Some((_, HitType::SsdResize { .. }))
         );
+        self.niri.update_ssd_titlebar_hover(&under);
         self.niri.pointer_contents.clone_from(&under);
 
         pointer.motion(
